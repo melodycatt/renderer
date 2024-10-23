@@ -1,4 +1,4 @@
-use cgmath::Vector3;
+use cgmath::{Matrix4, SquareMatrix, Vector3};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalSize, event::*, event_loop::{self, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowBuilder}
@@ -272,13 +272,13 @@ impl<'a> State<'a> {
             label: Some("camera_bind_group"),
         });        
 
-        let camera_controller = CameraController::new(0.15);
-        
+        let camera_controller = CameraController::new(0.05);
+
         let render_pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts: &[
-                &camera_bind_group_layout
+                &camera_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });

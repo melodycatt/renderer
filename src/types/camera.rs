@@ -9,7 +9,8 @@ use winit::{
         PhysicalKey
     }
 };
-use cgmath::{num_traits::Pow, Vector3};
+use cgmath::{Vector3, InnerSpace};
+use std::f32::consts::PI;
 
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     1.0, 0.0, 0.0, 0.0,
@@ -27,6 +28,8 @@ pub struct Camera {
     pub znear: f32,
     pub zfar: f32,
 
+    // If you're wondering, we're not using a Quaternion because that adds an extra level of complication
+    // when we don't need to worry about gimbal lock - all rotations will be manual, so it won't affect any calculations
     pub rotation: Vector3<f32>
 }
 
@@ -63,9 +66,7 @@ impl CameraUniform {
     pub fn update_view_proj(&mut self, camera: &Camera) {
         self.view_proj = camera.build_view_projection_matrix().into();
     }
-}
- 
-
+} 
 
 pub struct CameraController {
     pub speed: f32,
@@ -75,6 +76,9 @@ pub struct CameraController {
     pub is_right_pressed: bool,
     pub is_up_pressed: bool,
     pub is_down_pressed: bool,
+    pub is_zcw_pressed: bool,
+    pub is_zccw_pressed: bool,
+    pub is_debug_pressed: bool,
 }
 
 impl CameraController {
@@ -87,6 +91,9 @@ impl CameraController {
             is_right_pressed: false,
             is_up_pressed: false,
             is_down_pressed: false,
+            is_zcw_pressed: false,
+            is_zccw_pressed: false,
+            is_debug_pressed: false,
         }
     }
 
@@ -126,6 +133,18 @@ impl CameraController {
                         self.is_down_pressed = is_pressed;
                         true
                     }
+                    KeyCode::KeyC => {
+                        self.is_zcw_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::KeyZ => {
+                        self.is_zccw_pressed = is_pressed;
+                        true
+                    }
+                    KeyCode::Backquote => {
+                        self.is_debug_pressed = is_pressed;
+                        true
+                    }
                     _ => false,
                 }
             }
@@ -147,50 +166,97 @@ impl CameraController {
         if self.is_backward_pressed {
             camera.eye -= forward_norm * self.speed;
         }
+
         if self.is_right_pressed {
-            // Rescale the distance between the target and the eye so 
-            // that it doesn't change. The eye, therefore, still 
-            // lies on the circle made by the target and eye.
-            //camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
             camera.rotation.y += self.speed;
         }
         if self.is_left_pressed {
-            //camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
             camera.rotation.y -= self.speed;
         }
         if self.is_down_pressed {
-            //camera.eye = camera.target - (forward + camera.up * self.speed).normalize() * forward_mag;
             camera.rotation.x += self.speed;
         }     
         if self.is_up_pressed {
-            //camera.eye = camera.target - (forward - camera.up * self.speed).normalize() * forward_mag;
             camera.rotation.x -= self.speed;
         }
+        if self.is_zcw_pressed {
+            camera.rotation.z += self.speed;
+        }     
+        if self.is_zccw_pressed {
+            camera.rotation.z -= self.speed;
+        }
 
-        let rotmod = Vector3::new(
-            camera.rotation.x % (2.0 * std::f32::consts::PI),
-            camera.rotation.y % (2.0 * std::f32::consts::PI),
-            camera.rotation.z % (2.0 * std::f32::consts::PI),
-        );
-
+        // Recalculate the forward vector based on its new direction and magnitude
         let forward = Vector3::new(
             forward_mag * camera.rotation.x.cos() * camera.rotation.y.cos(),
             forward_mag * camera.rotation.x.sin(),
             forward_mag * camera.rotation.x.cos() * camera.rotation.y.sin(),
-        );
-        let forward_norm = forward.normalize();
+        );        
+        // Reposition eye so that forward points at the target again
         camera.eye = camera.target - forward;
-        let right = forward_norm.cross(Vector3::new(
-            0.0,
-            1.0 * if rotmod.x.abs() > std::f32::consts::PI / 2.0 && rotmod.x.abs() > 3.0 * std::f32::consts::PI / 2.0 { -1.0 } else { 1.0 },
-            0.0,
-        )).normalize();
-        //let right = Vector3::new()
-        
-        camera.up = forward_norm.cross(right);
+        camera.up = self.recalculate_up(forward, camera);
+    }
 
-        //let to_target = camera.eye - camera.target;
-        //camera.rotation = Vector3::new(to_target.x.atan2(to_target.z) * 180.0 / std::f32::consts::PI + 180.0, to_target.y.atan2((to_target.x.powi(2) + to_target.z.powi(2)).sqrt()) * 180.0 / std::f32::consts::PI + 180.0, camera.rotation.z);
-        println!("UP: {:#?} \nFORWARD: {:#?} \nRIGHT: {:#?} \nROT: {:#?}", camera.up, forward_norm, right, camera.rotation);
+    fn recalculate_up(&self, forward: Vector3<f32>, camera: &mut Camera) -> Vector3<f32> {
+        // Recalculates up vector based on new rotations
+
+        // Precompute values which are used a lot (and expensive)
+        let camera_rotation_x = camera.rotation.x.rem_euclid(2.0 * PI);
+        let sin_z = camera.rotation.z.sin();
+        let cos_z = camera.rotation.z.cos();
+
+        // Calculate the right vector
+        // We use a global up vector because the real up vector actually doesn't effect the right vector (think about it)
+        let mut right = forward.cross(Vector3::new(0.0, 1.0, 0.0)).normalize();
+        // Change the signs of x and z so they work with every rotation
+        // (each octant has different signs that follow this rule based on the forward vector)
+        right.x = right.x.abs() * forward.z.signum();
+        right.z = right.z.abs() * -forward.x.signum();
+
+        // Calculate the up vector similarly to the right vector, only with different signs
+        let mut up = forward.cross(right).normalize();
+        up.x = up.x.abs() * forward.x.signum();
+        up.y = up.y.abs();
+        up.z = up.z.abs() * forward.z.signum();
+
+        // Flip the up vector values if the camera is rotated upside down by the x axis
+        // These fractions of PI come from trial and error and seeing which rotations break the up vector
+        // If anyone knows their significance, please tell me (maybe I messed up the octant signs?)
+        if (camera_rotation_x > 0.25 * PI && camera_rotation_x <= 0.5 * PI)
+        || (camera_rotation_x >= 0.75 * PI && camera_rotation_x < 1.5 * PI) { up *= -1.0; }
+
+        // Rotate the right vector around the forward vector
+        // Effectively applies z rotation after the fact, 
+        // so we dont have to deal with that messing up the previous calculations
+        let forward_dot = forward.dot(forward);
+        let parallel = (right.dot(forward) / forward_dot) * forward;
+        let orthogonal = right - parallel;
+        let w = forward.cross(orthogonal);
+        let orthogonal_magnitude = orthogonal.magnitude();
+
+        let x1 = cos_z / orthogonal_magnitude;
+        let x2 = sin_z / w.magnitude();
+        let orthogonal_rotated = orthogonal_magnitude * (x1 * orthogonal + x2 * w);
+        right = orthogonal_rotated + parallel;
+
+        // Rotate the up vector the same way
+        let parallel = (up.dot(forward) / forward_dot) * forward;
+        let orthogonal = up - parallel;
+        let w = forward.cross(orthogonal);
+        let orthogonal_magnitude = orthogonal.magnitude();
+
+        let x1 = cos_z / orthogonal_magnitude;
+        let x2 = sin_z / w.magnitude();
+        let orthogonal_rotated = orthogonal_magnitude * (x1 * orthogonal + x2 * w);
+        up = orthogonal_rotated + parallel;
+
+        if self.is_debug_pressed {
+            println!(
+                "UP: {:#?} \nFORWARD: {:#?} \nRIGHT: {:#?} \nROT: {:#?} \nEYE: {:#?} \nTARGET: {:#?}",
+                camera.up, forward.normalize(), right, camera.rotation, camera.eye, camera.target
+            );
+        }
+
+        up
     }
 }
