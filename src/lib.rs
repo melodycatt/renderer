@@ -1,7 +1,7 @@
-use cgmath::{Matrix4, SquareMatrix, Vector3};
+use cgmath::Vector3;
 use wgpu::util::DeviceExt;
 use winit::{
-    dpi::PhysicalSize, event::*, event_loop::{self, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowBuilder}
+    dpi::PhysicalSize, event::*, event_loop::EventLoop, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowBuilder}
 };
 
 mod types;

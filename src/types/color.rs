@@ -12,7 +12,7 @@ impl Color {
     pub const fn new(r: f32, g: f32, b: f32) -> Color {
         Color {r, g, b}
     }
-    pub fn new_rgb(r: f32, g: f32, b: f32) -> Color {
+    pub fn _new_rgb(r: f32, g: f32, b: f32) -> Color {
         Color {r: r / 255.0, g: g / 255.0, b: b / 255.0}
     }
     pub fn new_hsv(h:f32, s: f32, v: f32) -> Color {
@@ -42,11 +42,11 @@ impl Color {
         Color::new(r, g, b)
     }
 
-    pub fn rgb(&self) -> (f32, f32, f32) {
+    pub fn _rgb(&self) -> (f32, f32, f32) {
         (self.r * 255.0, self.g * 255.0, self.b * 255.0)
     }
 
-    pub fn buffer(&self) -> [f32; 3] {
+    pub fn _buffer(&self) -> [f32; 3] {
         [self.r, self.g, self.b]
     }
 }
